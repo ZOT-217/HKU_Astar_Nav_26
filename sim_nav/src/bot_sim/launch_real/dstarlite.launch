@@ -29,6 +29,25 @@
         <!-- Params for velocity decrease when reaching goal -->
         <param name="start_decrease_dis" type="double" value="2" />
         <param name="min_velocity_rate" type="double" value="0.2" />
+
+           <!-- PID velocity tracking. D*-Lite still plans the desired direction;
+               PID compares that desired body-frame velocity with TF-estimated
+               body-frame velocity and smooths/corrects /cmd_vel. Raw planner
+               output is also published at /dstarlite/raw_cmd_vel. -->
+           <param name="pid_enabled" type="bool" value="true" />
+           <param name="pid_feedforward" type="double" value="1.0" />
+           <param name="pid_kp_x" type="double" value="0.35" />
+           <param name="pid_ki_x" type="double" value="0.0" />
+           <param name="pid_kd_x" type="double" value="0.02" />
+           <param name="pid_kp_y" type="double" value="0.35" />
+           <param name="pid_ki_y" type="double" value="0.0" />
+           <param name="pid_kd_y" type="double" value="0.02" />
+           <param name="pid_integral_limit" type="double" value="0.5" />
+           <param name="pid_output_limit" type="double" value="1.5" />
+           <param name="pid_accel_limit" type="double" value="2.0" />
+           <param name="pid_deadband" type="double" value="0.03" />
+           <param name="pid_feedback_timeout" type="double" value="0.25" />
+           <param name="pid_reset_on_stop" type="bool" value="true" />
     </node>
 
     <node pkg="bot_sim" type="cmd_vel_marker" name="cmd_vel_marker">

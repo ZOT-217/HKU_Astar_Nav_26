@@ -9,6 +9,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2/LinearMath/Transform.h>
+#include "bot_sim/velocity_pid_controller.hpp"
 #include<iostream>
 #include<queue>
 #include<stack>
@@ -35,6 +36,8 @@ class dstarlite{
         void dstar_update_node(Nodeptr cur);
         void publish(ros::Publisher& pub, std::string map_frame_name, ros::Publisher& cmd_vel_pub, std::string robot_frame_name, tf2_ros::Buffer& tfBuffer);
         void publish_vel(std::string map_frame_name, ros::Publisher& cmd_vel_pub, std::string robot_frame_name, tf2_ros::Buffer& tfBuffer);
+        void publish_stop(ros::Publisher& cmd_vel_pub);
+        void reset_pid();
         void publish_all_map_status(ros::Publisher& pub);
         void when_receive_new_goal(geometry_msgs::PointStamped::ConstPtr goal_pose_msg, double real_start_x, double real_start_y);
         void when_receive_new_dynamic_map(nav_msgs::OccupancyGrid::ConstPtr dynamic_map_msg, std::string map_frame_name, tf2_ros::Buffer& tfBuffer);
@@ -204,9 +207,12 @@ class dstarlite{
         double k, x0, L, k1, x01, L1;
         double start_decrease_dis, min_velocity_rate;
         bool arrive_flag = 0;
+        bot_sim::VelocityPidController velocity_pid_;
+        ros::Publisher raw_cmd_vel_pub_;
 };
 dstarlite::dstarlite(std::string map_topic, double x0, double k, double L, double x01, double k1, double L1, double start_decrease_dis, double min_velocity_rate){
     ros::NodeHandle nh;
+    ros::NodeHandle private_nh("~");
     nav_msgs::OccupancyGrid::ConstPtr msg = ros::topic::waitForMessage<nav_msgs::OccupancyGrid>(map_topic, nh);
     ROS_INFO("get_map_started");
     if (msg != nullptr){
@@ -228,6 +234,8 @@ dstarlite::dstarlite(std::string map_topic, double x0, double k, double L, doubl
         this->origin_start_node = nullptr;
         this->start_node = nullptr;
         this->final_goal_node = nullptr;
+        velocity_pid_.loadParams(private_nh, L1);
+        raw_cmd_vel_pub_ = private_nh.advertise<geometry_msgs::Twist>("raw_cmd_vel", 1);
         //needcode to initialize max_x and max_y;
         map = new Nodeptr*[max_x];
         std::queue<Nodeptr> q;
@@ -319,7 +327,7 @@ void dstarlite::when_receive_new_dynamic_map(nav_msgs::OccupancyGrid::ConstPtr d
         transformStamped = tfBuffer.lookupTransform(map_frame_name, dynamic_frame_name, ros::Time(0));
     } catch (tf2::TransformException &ex) {
         ROS_WARN("%s", ex.what());
-        ros::Duration(1.0).sleep();
+        return;
     }
     ROS_INFO("Erase obstacle nodes");
     ROS_INFO("Deal with dynamic map");
@@ -482,23 +490,35 @@ void dstarlite::dstar_update(Nodeptr end_node){
     //     exit(1);
     // }
 }
+void dstarlite::reset_pid(){
+    velocity_pid_.reset();
+}
+void dstarlite::publish_stop(ros::Publisher& cmd_vel_pub){
+    geometry_msgs::Twist cmd_vel;
+    reset_pid();
+    if(!raw_cmd_vel_pub_.getTopic().empty()) raw_cmd_vel_pub_.publish(cmd_vel);
+    cmd_vel_pub.publish(cmd_vel);
+}
 void dstarlite::publish(ros::Publisher& pub, std::string map_frame_name, ros::Publisher& cmd_vel_pub, std::string robot_frame_name, tf2_ros::Buffer& tfBuffer){
     nav_msgs::Path path;
     path.header.stamp = ros::Time::now();
     path.header.frame_id = map_frame_name; 
     // ROS_INFO("Publish started");
     Nodeptr cur = start_node;
-    if(cur == nullptr)return;
+    if(cur == nullptr || final_goal_node == nullptr){
+        publish_stop(cmd_vel_pub);
+        return;
+    }
     geometry_msgs::Twist cmd_vel;
     geometry_msgs::TransformStamped transformStamped;
     try {
         transformStamped = tfBuffer.lookupTransform(robot_frame_name, map_frame_name, ros::Time(0));
     } catch (tf2::TransformException &ex) {
         ROS_WARN("%s", ex.what());
-        ros::Duration(1.0).sleep();
+        publish_stop(cmd_vel_pub);
+        return;
     }
     // ROS_INFO("Find root");
-    if(cur == nullptr || final_goal_node == nullptr) ROS_ERROR("?????");
     if(lct->find_root(cur) == lct->find_root(final_goal_node)){
         // ROS_INFO("cur->succ:%p cur:%p root(cur)%p goal%p root(goal)%p", cur->succ, cur, lct->find_root(cur), final_goal_node, lct->find_root(final_goal_node));
         Nodeptr final_aim = cur;
@@ -509,6 +529,10 @@ void dstarlite::publish(ros::Publisher& pub, std::string map_frame_name, ros::Pu
         double dx = final_aim->x - cur->x;
         double dy = final_aim->y - cur->y;
         double dis = sqrt(dx * dx + dy * dy);
+        if(dis < 1e-6){
+            publish_stop(cmd_vel_pub);
+            return;
+        }
         double new_velocity = calculate_velocity(cur);
         cmd_vel.linear.x = dx / dis;
         cmd_vel.linear.y = dy / dis;
@@ -520,16 +544,20 @@ void dstarlite::publish(ros::Publisher& pub, std::string map_frame_name, ros::Pu
         tf2::fromMsg(transformStamped.transform, tf_transform);
         tf2::Vector3 new_cmd_vel = tf_transform * old_cmd_vel;
         double xy_lenth = sqrt(new_cmd_vel.x() * new_cmd_vel.x() + new_cmd_vel.y() * new_cmd_vel.y());
+        if(xy_lenth < 1e-6){
+            publish_stop(cmd_vel_pub);
+            return;
+        }
         double z_angle = atan2(new_cmd_vel.z(), xy_lenth);
         cmd_vel.linear.x = new_cmd_vel.x()/xy_lenth * new_velocity * (std::min(1 - z_angle/(15.0 / 360 * 2 * 3.1415926), 1.7));
         cmd_vel.linear.y = new_cmd_vel.y()/xy_lenth * new_velocity * (std::max(1 - z_angle/(15.0 / 360 * 2 * 3.1415926), 0.7));
-        ROS_INFO("old_cmd_vel: %lf new_cmd_vel: %lf z_angle:%lf", sqrt(old_cmd_vel.x()*old_cmd_vel.x()+old_cmd_vel.y()*old_cmd_vel.y()), sqrt(cmd_vel.linear.x*cmd_vel.linear.x+cmd_vel.linear.y*cmd_vel.linear.y), z_angle*180/3.1415926);
-        cmd_vel_pub.publish(cmd_vel);
+        if(!raw_cmd_vel_pub_.getTopic().empty()) raw_cmd_vel_pub_.publish(cmd_vel);
+        geometry_msgs::Twist controlled_cmd_vel = velocity_pid_.update(cmd_vel, map_frame_name, robot_frame_name, tfBuffer);
+        ROS_INFO("old_cmd_vel: %lf raw_cmd_vel: %lf pid_cmd_vel: %lf z_angle:%lf", sqrt(old_cmd_vel.x()*old_cmd_vel.x()+old_cmd_vel.y()*old_cmd_vel.y()), sqrt(cmd_vel.linear.x*cmd_vel.linear.x+cmd_vel.linear.y*cmd_vel.linear.y), sqrt(controlled_cmd_vel.linear.x*controlled_cmd_vel.linear.x+controlled_cmd_vel.linear.y*controlled_cmd_vel.linear.y), z_angle*180/3.1415926);
+        cmd_vel_pub.publish(controlled_cmd_vel);
     }
     else{
-        cmd_vel.linear.x = 0;
-        cmd_vel.linear.y = 0;
-        cmd_vel_pub.publish(cmd_vel);
+        publish_stop(cmd_vel_pub);
         return;
     }
     // ROS_INFO("Find path");
@@ -620,8 +648,9 @@ void dstarlite::try_to_find_path(){
 }
 double dstarlite::calculate_velocity(Nodeptr cur){
     double velocity = L1/(1 + exp(-k1 * (cur->obstacle_possibility - x01)));
-    if(sqrt((cur->x - final_goal_node->x) * (cur->x - final_goal_node->x) + (cur->y - final_goal_node->y) * (cur->y - final_goal_node->y))*resolution < start_decrease_dis)velocity*=min_velocity_rate+(1-min_velocity_rate)/start_decrease_dis*sqrt((cur->x - final_goal_node->x) * (cur->x - final_goal_node->x) + (cur->y - final_goal_node->y) * (cur->y - final_goal_node->y))*resolution;
-    return L1;
+    double distance_to_goal = sqrt((cur->x - final_goal_node->x) * (cur->x - final_goal_node->x) + (cur->y - final_goal_node->y) * (cur->y - final_goal_node->y))*resolution;
+    if(start_decrease_dis > 1e-6 && distance_to_goal < start_decrease_dis)velocity*=min_velocity_rate+(1-min_velocity_rate)/start_decrease_dis*distance_to_goal;
+    return std::max(0.0, velocity);
 }
 double dstarlite::calculate_edge_value(Nodeptr cur){
     return std::max(1 + L/(1 + exp(-k * (cur->static_obstacle_possibility - x0))), (1 + L/(1 + exp(-k * (cur->obstacle_possibility - x0))))*0.5);
@@ -714,7 +743,10 @@ int main(int argc, char **argv){
                 transformStamped = tfBuffer.lookupTransform(map_frame_name, robot_frame_name, ros::Time(0));
             } catch (tf2::TransformException &ex) {
                 ROS_WARN("%s", ex.what());
-                ros::Duration(1.0).sleep();
+                dstar.publish_stop(pub3);
+                ros::spinOnce();
+                rate.sleep();
+                continue;
             }
             ROS_INFO("get goal and dynamic map info");
             dstar.when_receive_new_goal(goal_pose_msg, transformStamped.transform.translation.x, transformStamped.transform.translation.y);
@@ -742,17 +774,17 @@ int main(int argc, char **argv){
             } catch (tf2::TransformException &ex) {
                 ROS_WARN("%s", ex.what());
                 ROS_INFO("ERROR IN MAP TO ROBOT");
-                ros::Duration(1.0).sleep();
+                dstar.publish_stop(pub3);
+                ros::spinOnce();
+                rate.sleep();
+                continue;
             }
             double real_goal_x = dstar.final_goal_node->x * dstar.resolution + dstar.initial_x;
             double real_goal_y = dstar.final_goal_node->y * dstar.resolution + dstar.initial_y;
             if(abs(real_goal_x - transformStamped.transform.translation.x) < 0.25 && abs(real_goal_y - transformStamped.transform.translation.y) < 0.25){
                 ROS_INFO("Goal reached");
                 have_first_goal = false;
-                geometry_msgs::Twist cmd_vel;
-                cmd_vel.linear.x = 0;
-                cmd_vel.linear.y = 0;
-                pub3.publish(cmd_vel);
+                dstar.publish_stop(pub3);
                 std_msgs::Bool dstar_status;
                 if(!dstar.arrive_flag){
                     dstar_status.data = 1;
@@ -771,10 +803,7 @@ int main(int argc, char **argv){
             }
         }
         else{
-            geometry_msgs::Twist cmd_vel;
-            cmd_vel.linear.x = 0;
-            cmd_vel.linear.y = 0;
-            pub3.publish(cmd_vel);
+            dstar.publish_stop(pub3);
         }
         ros::spinOnce();
         rate.sleep();

@@ -44,6 +44,25 @@
         <!-- 每帧扫描 ESDF 的范围半径 [m] -->
         <param name="esdf_scan_radius"   type="double" value="6.0"/>
 
+           <!-- PID velocity tracking. D*-Lite + ESDF still plans the desired
+               body-frame velocity; PID compares it with TF-estimated velocity
+               and publishes the corrected final command on /cmd_vel. Raw planner
+               output is also available at the node-private raw_cmd_vel topic. -->
+           <param name="pid_enabled" type="bool" value="true" />
+           <param name="pid_feedforward" type="double" value="1.0" />
+           <param name="pid_kp_x" type="double" value="0.35" />
+           <param name="pid_ki_x" type="double" value="0.0" />
+           <param name="pid_kd_x" type="double" value="0.02" />
+           <param name="pid_kp_y" type="double" value="0.35" />
+           <param name="pid_ki_y" type="double" value="0.0" />
+           <param name="pid_kd_y" type="double" value="0.02" />
+           <param name="pid_integral_limit" type="double" value="0.5" />
+           <param name="pid_output_limit" type="double" value="1.5" />
+           <param name="pid_accel_limit" type="double" value="2.0" />
+           <param name="pid_deadband" type="double" value="0.03" />
+           <param name="pid_feedback_timeout" type="double" value="0.25" />
+           <param name="pid_reset_on_stop" type="bool" value="true" />
+
     </node>
 
     <!-- cmd_vel 可视化（箭头 marker） -->
