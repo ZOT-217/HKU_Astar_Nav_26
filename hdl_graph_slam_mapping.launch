@@ -13,7 +13,7 @@
   <arg name="livox_frame_id"        default="gimbal_frame" />
 
   <!-- ======================== IMU 融合开关 ======================== -->
-  <arg name="enable_imu"            default="true" />
+  <arg name="enable_imu"            default="false" />
 
   <!-- ======================== 地图保存参数 ======================== -->
   <arg name="save_map"              default="true" />

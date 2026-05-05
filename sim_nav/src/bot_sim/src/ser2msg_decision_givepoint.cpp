@@ -59,7 +59,8 @@ public:
     
     void onYawAngle(const std_msgs::Float32::ConstPtr& msg) {
         // 将接收到的度转换为弧度制（暂时先不转换，下位机结算完毕了）
-        this->relative_angle = msg->data;
+        // this->relative_angle = msg->data;
+        this->relative_angle = 0.0f;
     }
     
     void onChassisImu(const std_msgs::Float32::ConstPtr& msg) {

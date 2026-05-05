@@ -44,7 +44,7 @@
     <param name="distance_far_thresh" value="1000.0" />
     <!-- NONE, VOXELGRID, or APPROX_VOXELGRID -->
     <param name="downsample_method" value="VOXELGRID" />
-    <param name="downsample_resolution" value="0.05" />
+    <param name="downsample_resolution" value="0.02" />
     <!-- NONE, RADIUS, or STATISTICAL -->
     <param name="outlier_removal_method" value="NONE" />
     <param name="statistical_mean_k" value="30" />
