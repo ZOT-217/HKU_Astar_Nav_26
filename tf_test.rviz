@@ -10,6 +10,8 @@ Panels:
         - /PointCloud22
         - /Path1
         - /PointCloud23
+        - /cmd_vel (PID output)1
+        - /raw_cmd_vel (planner)1
       Splitter Ratio: 0.5
     Tree Height: 439
   - Class: rviz/Selection
@@ -183,6 +185,22 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /cmd_vel_marker
+      Name: cmd_vel (PID output)
+      Namespaces:
+        cmd_vel: true
+      Queue Size: 10
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /dstarlite/raw_cmd_vel_marker
+      Name: raw_cmd_vel (planner)
+      Namespaces:
+        cmd_vel: true
+      Queue Size: 10
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -211,7 +229,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 2.4565887451171875
+      Distance: 2.841329574584961
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -219,17 +237,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -0.2953522503376007
-        Y: 0.28991469740867615
-        Z: 2.790682554244995
+        X: -0.5812870264053345
+        Y: -1.307871699333191
+        Z: 0.1551051139831543
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.804796576499939
+      Pitch: 1.0647966861724854
       Target Frame: <Fixed Frame>
-      Yaw: 1.8249585628509521
+      Yaw: 3.2186434268951416
     Saved: ~
 Window Geometry:
   Displays:

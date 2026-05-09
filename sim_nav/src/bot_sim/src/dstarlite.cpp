@@ -10,6 +10,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2/LinearMath/Transform.h>
 #include "bot_sim/velocity_pid_controller.hpp"
+#include<algorithm>
 #include<iostream>
 #include<queue>
 #include<stack>
@@ -38,6 +39,8 @@ class dstarlite{
         void publish_vel(std::string map_frame_name, ros::Publisher& cmd_vel_pub, std::string robot_frame_name, tf2_ros::Buffer& tfBuffer);
         void publish_stop(ros::Publisher& cmd_vel_pub);
         void reset_pid();
+        double slope_boost_scale(double z_angle) const;
+        bool transform_stale(const geometry_msgs::TransformStamped& transformStamped, const std::string& context) const;
         void publish_all_map_status(ros::Publisher& pub);
         void when_receive_new_goal(geometry_msgs::PointStamped::ConstPtr goal_pose_msg, double real_start_x, double real_start_y);
         void when_receive_new_dynamic_map(nav_msgs::OccupancyGrid::ConstPtr dynamic_map_msg, std::string map_frame_name, tf2_ros::Buffer& tfBuffer);
@@ -206,6 +209,12 @@ class dstarlite{
         double velocity, resolution, initial_x, initial_y;
         double k, x0, L, k1, x01, L1;
         double start_decrease_dis, min_velocity_rate;
+        bool slope_boost_enabled = true;
+        double slope_boost_start_angle = 4.0 / 180.0 * M_PI;
+        double slope_boost_full_angle = 15.0 / 180.0 * M_PI;
+        double slope_boost_max_scale = 1.6;
+        double slope_boost_uphill_sign = -1.0;
+        double cmd_vel_tf_timeout = 0.3;
         bool arrive_flag = 0;
         bot_sim::VelocityPidController velocity_pid_;
         ros::Publisher raw_cmd_vel_pub_;
@@ -235,6 +244,21 @@ dstarlite::dstarlite(std::string map_topic, double x0, double k, double L, doubl
         this->start_node = nullptr;
         this->final_goal_node = nullptr;
         velocity_pid_.loadParams(private_nh, L1);
+        private_nh.param("slope_boost_enabled", slope_boost_enabled, slope_boost_enabled);
+        double slope_boost_start_deg = slope_boost_start_angle * 180.0 / M_PI;
+        double slope_boost_full_deg = slope_boost_full_angle * 180.0 / M_PI;
+        private_nh.param("slope_boost_start_deg", slope_boost_start_deg, slope_boost_start_deg);
+        private_nh.param("slope_boost_full_deg", slope_boost_full_deg, slope_boost_full_deg);
+        private_nh.param("slope_boost_max_scale", slope_boost_max_scale, slope_boost_max_scale);
+        private_nh.param("slope_boost_uphill_sign", slope_boost_uphill_sign, slope_boost_uphill_sign);
+        private_nh.param("cmd_vel_tf_timeout", cmd_vel_tf_timeout, cmd_vel_tf_timeout);
+        slope_boost_start_angle = std::max(0.0, slope_boost_start_deg / 180.0 * M_PI);
+        slope_boost_full_angle = std::max(slope_boost_start_angle + 1e-6, slope_boost_full_deg / 180.0 * M_PI);
+        slope_boost_max_scale = std::max(1.0, slope_boost_max_scale);
+        slope_boost_uphill_sign = slope_boost_uphill_sign >= 0.0 ? 1.0 : -1.0;
+        cmd_vel_tf_timeout = std::max(0.0, cmd_vel_tf_timeout);
+        ROS_INFO("Slope boost params: enabled=%s start_deg=%.2f full_deg=%.2f max_scale=%.2f uphill_sign=%.0f", slope_boost_enabled ? "true" : "false", slope_boost_start_deg, slope_boost_full_deg, slope_boost_max_scale, slope_boost_uphill_sign);
+        ROS_INFO("cmd_vel TF timeout: %.3fs", cmd_vel_tf_timeout);
         raw_cmd_vel_pub_ = private_nh.advertise<geometry_msgs::Twist>("raw_cmd_vel", 1);
         //needcode to initialize max_x and max_y;
         map = new Nodeptr*[max_x];
@@ -499,6 +523,20 @@ void dstarlite::publish_stop(ros::Publisher& cmd_vel_pub){
     if(!raw_cmd_vel_pub_.getTopic().empty()) raw_cmd_vel_pub_.publish(cmd_vel);
     cmd_vel_pub.publish(cmd_vel);
 }
+double dstarlite::slope_boost_scale(double z_angle) const{
+    if(!slope_boost_enabled) return 1.0;
+    const double uphill_angle = std::max(0.0, slope_boost_uphill_sign * z_angle);
+    if(uphill_angle <= slope_boost_start_angle) return 1.0;
+    const double ratio = std::min(1.0, (uphill_angle - slope_boost_start_angle) / (slope_boost_full_angle - slope_boost_start_angle));
+    return 1.0 + (slope_boost_max_scale - 1.0) * ratio;
+}
+bool dstarlite::transform_stale(const geometry_msgs::TransformStamped& transformStamped, const std::string& context) const{
+    if(cmd_vel_tf_timeout <= 0.0 || transformStamped.header.stamp.isZero()) return false;
+    const double age = (ros::Time::now() - transformStamped.header.stamp).toSec();
+    if(age <= cmd_vel_tf_timeout) return false;
+    ROS_WARN_THROTTLE(1.0, "%s TF stale: age=%.3fs timeout=%.3fs; publishing stop", context.c_str(), age, cmd_vel_tf_timeout);
+    return true;
+}
 void dstarlite::publish(ros::Publisher& pub, std::string map_frame_name, ros::Publisher& cmd_vel_pub, std::string robot_frame_name, tf2_ros::Buffer& tfBuffer){
     nav_msgs::Path path;
     path.header.stamp = ros::Time::now();
@@ -518,12 +556,16 @@ void dstarlite::publish(ros::Publisher& pub, std::string map_frame_name, ros::Pu
         publish_stop(cmd_vel_pub);
         return;
     }
+    if(transform_stale(transformStamped, "publish robot<-map")){
+        publish_stop(cmd_vel_pub);
+        return;
+    }
     // ROS_INFO("Find root");
     if(lct->find_root(cur) == lct->find_root(final_goal_node)){
         // ROS_INFO("cur->succ:%p cur:%p root(cur)%p goal%p root(goal)%p", cur->succ, cur, lct->find_root(cur), final_goal_node, lct->find_root(final_goal_node));
         Nodeptr final_aim = cur;
-        for(int i = 0; i < 12; i++){
-            if(final_aim->succ == nullptr)break;
+        for(int i = 0; i < 6; i++){
+            if(final_aim->succ == nullptr) break;
             final_aim = final_aim->succ;
         }
         double dx = final_aim->x - cur->x;
@@ -549,11 +591,14 @@ void dstarlite::publish(ros::Publisher& pub, std::string map_frame_name, ros::Pu
             return;
         }
         double z_angle = atan2(new_cmd_vel.z(), xy_lenth);
-        cmd_vel.linear.x = new_cmd_vel.x()/xy_lenth * new_velocity * (std::min(1 - z_angle/(15.0 / 360 * 2 * 3.1415926), 1.7));
-        cmd_vel.linear.y = new_cmd_vel.y()/xy_lenth * new_velocity * (std::max(1 - z_angle/(15.0 / 360 * 2 * 3.1415926), 0.7));
+        double slope_scale = slope_boost_scale(z_angle);
+        // cmd_vel.linear.x = new_cmd_vel.x()/xy_lenth * new_velocity * (std::min(1 - z_angle/(15.0 / 360 * 2 * 3.1415926), 1.7));
+        // cmd_vel.linear.y = new_cmd_vel.y()/xy_lenth * new_velocity * (std::max(1 - z_angle/(15.0 / 360 * 2 * 3.1415926), 0.7));
+        cmd_vel.linear.x = new_cmd_vel.x()/xy_lenth * new_velocity * slope_scale;
+        cmd_vel.linear.y = new_cmd_vel.y()/xy_lenth * new_velocity * slope_scale;
         if(!raw_cmd_vel_pub_.getTopic().empty()) raw_cmd_vel_pub_.publish(cmd_vel);
         geometry_msgs::Twist controlled_cmd_vel = velocity_pid_.update(cmd_vel, map_frame_name, robot_frame_name, tfBuffer);
-        ROS_INFO("old_cmd_vel: %lf raw_cmd_vel: %lf pid_cmd_vel: %lf z_angle:%lf", sqrt(old_cmd_vel.x()*old_cmd_vel.x()+old_cmd_vel.y()*old_cmd_vel.y()), sqrt(cmd_vel.linear.x*cmd_vel.linear.x+cmd_vel.linear.y*cmd_vel.linear.y), sqrt(controlled_cmd_vel.linear.x*controlled_cmd_vel.linear.x+controlled_cmd_vel.linear.y*controlled_cmd_vel.linear.y), z_angle*180/3.1415926);
+        ROS_INFO("old_cmd_vel: %lf raw_cmd_vel: %lf pid_cmd_vel: %lf z_angle:%lf slope_scale:%lf", sqrt(old_cmd_vel.x()*old_cmd_vel.x()+old_cmd_vel.y()*old_cmd_vel.y()), sqrt(cmd_vel.linear.x*cmd_vel.linear.x+cmd_vel.linear.y*cmd_vel.linear.y), sqrt(controlled_cmd_vel.linear.x*controlled_cmd_vel.linear.x+controlled_cmd_vel.linear.y*controlled_cmd_vel.linear.y), z_angle*180/3.1415926, slope_scale);
         cmd_vel_pub.publish(controlled_cmd_vel);
     }
     else{
@@ -732,7 +777,11 @@ int main(int argc, char **argv){
     dstarlite dstar(static_map_topic_name, x0_grid, k_grid, L_grid, x0_velocity, k_velocity, L_velocity, start_decrease_dis, min_velocity_rate);
     ROS_INFO("Initialization finished");
     bool have_first_goal = false;
-    ros::Rate rate(100);
+    double control_rate_hz;
+    nh.param(node_name+"/control_rate_hz", control_rate_hz, 10.0);
+    control_rate_hz = std::max(1.0, control_rate_hz);
+    ROS_INFO("control_rate_hz: %lf", control_rate_hz);
+    ros::Rate rate(control_rate_hz);
     tf2_ros::Buffer tfBuffer;
     tf2_ros::TransformListener tfListener(tfBuffer);
     geometry_msgs::TransformStamped transformStamped;
@@ -743,6 +792,12 @@ int main(int argc, char **argv){
                 transformStamped = tfBuffer.lookupTransform(map_frame_name, robot_frame_name, ros::Time(0));
             } catch (tf2::TransformException &ex) {
                 ROS_WARN("%s", ex.what());
+                dstar.publish_stop(pub3);
+                ros::spinOnce();
+                rate.sleep();
+                continue;
+            }
+            if(dstar.transform_stale(transformStamped, "goal map->robot")){
                 dstar.publish_stop(pub3);
                 ros::spinOnce();
                 rate.sleep();
@@ -774,6 +829,12 @@ int main(int argc, char **argv){
             } catch (tf2::TransformException &ex) {
                 ROS_WARN("%s", ex.what());
                 ROS_INFO("ERROR IN MAP TO ROBOT");
+                dstar.publish_stop(pub3);
+                ros::spinOnce();
+                rate.sleep();
+                continue;
+            }
+            if(dstar.transform_stale(transformStamped, "control map->robot")){
                 dstar.publish_stop(pub3);
                 ros::spinOnce();
                 rate.sleep();

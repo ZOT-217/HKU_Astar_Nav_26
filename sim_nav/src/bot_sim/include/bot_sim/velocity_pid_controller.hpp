@@ -286,11 +286,9 @@ public:
         }
 
         if (feedback_status != FeedbackStatus::Valid) {
-            // TF unavailable, stale, or first sample: do not apply PID terms,
-            // but still enforce the final velocity cap.  This prevents
-            // /cmd_vel from becoming identical to an over-limit raw_cmd_vel
-            // during fallback cycles.
-            return limitedFallback(desired);
+            // TF unavailable, stale, or first sample: fail closed.  A nonzero
+            // fallback can keep the robot drifting when localization stalls.
+            return stoppedFallback();
         }
 
         // ── 4. Per-axis PID correction ────────────────────────────────────
@@ -512,9 +510,19 @@ private:
 
         // Use the transform's own timestamp when available; fall back to
         // ros::Time::now() for TF trees that publish with zero stamps.
-        const ros::Time stamp = pose_transform.header.stamp.isZero()
-                                    ? ros::Time::now()
-                                    : pose_transform.header.stamp;
+        const bool stamp_is_zero = pose_transform.header.stamp.isZero();
+        const ros::Time now = ros::Time::now();
+        const ros::Time stamp = stamp_is_zero ? now : pose_transform.header.stamp;
+        if (!stamp_is_zero && feedback_timeout_ > 0.0) {
+            const double sample_age = (now - stamp).toSec();
+            if (sample_age > feedback_timeout_) {
+                ROS_WARN_THROTTLE(1.0,
+                                  "Velocity PID feedback TF stale: age=%.3fs timeout=%.3fs",
+                                  sample_age, feedback_timeout_);
+                reset();
+                return FeedbackStatus::Unavailable;
+            }
+        }
         const double x = pose_transform.transform.translation.x;
         const double y = pose_transform.transform.translation.y;
 
@@ -651,12 +659,11 @@ private:
      * final /cmd_vel cannot exceed the configured safety cap while the raw
      * planner command remains visible on raw_cmd_vel for debugging.
      */
-    geometry_msgs::Twist limitedFallback(const geometry_msgs::Twist& desired) {
-        geometry_msgs::Twist output = desired;
-        limitVector(output.linear.x, output.linear.y, output_limit_);
+    geometry_msgs::Twist stoppedFallback() {
+        geometry_msgs::Twist output;
         rememberOutput(output);
-        ROS_DEBUG_THROTTLE(1.0,
-                           "Velocity PID fallback: publishing magnitude-limited raw command");
+        ROS_WARN_THROTTLE(1.0,
+                          "Velocity PID fallback: stopping until fresh TF feedback is available");
         return output;
     }
 
@@ -672,7 +679,7 @@ private:
      */
     geometry_msgs::Twist holdPreviousOutput(const geometry_msgs::Twist& desired) {
         if (!has_output_) {
-            return limitedFallback(desired);
+            return stoppedFallback();
         }
 
         geometry_msgs::Twist output = last_output_;
