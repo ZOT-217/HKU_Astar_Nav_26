@@ -63,3 +63,10 @@ pcd_save:
     pcd_save_en: true
     interval: 1000                 # how many LiDAR frames saved in each pcd file; 
                                  # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
+    transform_en: true
+    roll_deg: 180.0
+    pitch_deg: 0.0
+    yaw_deg: 0.0
+    translate_x: 0.0
+    translate_y: 0.0
+    translate_z: 0.0

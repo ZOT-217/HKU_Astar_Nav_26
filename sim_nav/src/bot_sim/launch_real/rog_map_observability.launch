@@ -6,6 +6,8 @@
     extrapolation jitter for any consumer.
   -->
   <arg name="frame_id_shim" default="true"/>
+  <arg name="old_nav_root" default="/home/sentry_train_test/AstarTraining/Old_nav"/>
+  <arg name="rog_map_config" default="$(arg old_nav_root)/sim_nav/src/bot_sim/config/rog_map_passive.yaml"/>
 
   <!-- Required: rog_map publishes its visualization topics with frame_id="world"
        hardcoded in the source. The configured visualization.frame_id key is
@@ -22,6 +24,6 @@
   <!-- output="screen" during bring-up so rog_map's exit(-1) config validation
        paths surface in the operator's terminal. Flip to "log" once stable. -->
   <node pkg="bot_sim" type="rog_map_node" name="rog_map_node" output="screen">
-    <rosparam command="load" file="$(find bot_sim)/config/rog_map_passive.yaml"/>
+    <rosparam command="load" file="$(arg rog_map_config)"/>
   </node>
 </launch>

@@ -3,13 +3,15 @@
   <!-- arguments -->
   <arg name="nodelet_manager" default="velodyne_nodelet_manager" />
   <arg name="points_topic" default="livox/lidar" />
+  <arg name="old_nav_root" default="/home/sentry_train_test/AstarTraining/Old_nav" />
+  <arg name="globalmap_pcd" default="$(arg old_nav_root)/sim_nav/src/hdl_graph_slam/map/innowing.pcd" />
   <!-- input clouds are transformed in odom_child_frame, and then localization is performed in that frame -->
   <!-- this is useful to match the LIDAR and IMU coodinate systems -->
   <arg name="odom_child_frame_id" default="aft_mapped" />
 
   <!-- optional arguments -->
   <arg name="use_imu" default="true" />
-  <arg name="invert_imu_acc" default="true" />
+  <arg name="invert_imu_acc" default="false" />
   <arg name="invert_imu_gyro" default="false" />
   <arg name="use_global_localization" default="false" /> 
   <!-- <arg name="imu_topic" default="/imu/data" /> -->
@@ -26,7 +28,7 @@
 
     <!-- globalmap_server_nodelet -->
     <node pkg="nodelet" type="nodelet" name="globalmap_server_nodelet" args="load hdl_localization/GlobalmapServerNodelet $(arg nodelet_manager)">
-      <param name="globalmap_pcd" value="$(find hdl_graph_slam)/map/innowing.pcd" /> <!--here?-->
+      <param name="globalmap_pcd" value="$(arg globalmap_pcd)" />
       <param name="convert_utm_to_local" value="true" />
       <param name="downsample_resolution" value="0.1" />
     </node>

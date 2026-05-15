@@ -1,27 +1,33 @@
 #!/bin/bash
 set -eo pipefail
 
-cd /home/sentry/AstarTraining/Old_nav
+OLD_NAV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ASTAR_ROOT="$(dirname "$OLD_NAV_ROOT")"
+DECISION_WS="${DECISION_WS:-$ASTAR_ROOT/DecisionNode}"
 
-LOG_DIR="/home/sentry/AstarTraining/Old_nav/logs"
+cd "$OLD_NAV_ROOT"
+
+LOG_DIR="$OLD_NAV_ROOT/logs"
 mkdir -p "$LOG_DIR"
 exec >> "$LOG_DIR/3dnav_with_decision_autostart.log" 2>&1
 
 echo "==== $(date '+%F %T') starting 3DNav autostart ===="
 
-export HOME=/home/sentry
-export ROS_HOME=/home/sentry/.ros
+export HOME="${HOME:-/home/sentry_train_test}"
+export ROS_HOME="${ROS_HOME:-$HOME/.ros}"
 export ROS_DISTRO=noetic
 export ROS_MASTER_URI=http://127.0.0.1:11311
 export ROS_HOSTNAME=127.0.0.1
 
 # Source ROS and all related workspaces
 source /opt/ros/noetic/setup.bash
-source /home/sentry/AstarTraining/Old_nav/livox_ws/devel/setup.bash --extend
-source /home/sentry/AstarTraining/Old_nav/sim_nav/devel/setup.bash --extend
-source /home/sentry/AstarTraining/Old_nav/Navigation-filter-test/devel/setup.bash --extend
-if [ -f /home/sentry/AstarTraining/DecisionNode/devel/setup.bash ]; then
-  source /home/sentry/AstarTraining/DecisionNode/devel/setup.bash --extend
+source "$OLD_NAV_ROOT/livox_ws/devel/setup.bash" --extend
+source "$OLD_NAV_ROOT/sim_nav/devel/setup.bash" --extend
+if [ -f "$OLD_NAV_ROOT/Navigation-filter-test/devel/setup.bash" ]; then
+  source "$OLD_NAV_ROOT/Navigation-filter-test/devel/setup.bash" --extend
+fi
+if [ -f "$DECISION_WS/devel/setup.bash" ]; then
+  source "$DECISION_WS/devel/setup.bash" --extend
 fi
 
 # Short, configurable startup waits (systemd already orders network and ttyUSB0)
@@ -127,7 +133,7 @@ done) &
 SPLIT_PID=$!
 
 echo "[$(date '+%F %T')] launching 3DNavUL_Test_with_decision.launch"
-roslaunch --wait /home/sentry/AstarTraining/Old_nav/3DNavUL_Test_with_decision.launch
+roslaunch --wait "$OLD_NAV_ROOT/3DNavUL_Test_with_decision.launch" old_nav_root:="$OLD_NAV_ROOT"
 
 # 退出时清理
 kill $SPLIT_PID 2>/dev/null || true
@@ -135,7 +141,7 @@ stop_rosbag_if_running
 
 # # 如需自动重启，请取消注释以下内容：
 # while true; do
-#   roslaunch --wait /home/sentry/AstarTraining/Old_nav/3DNavUL_Test_with_decision.launch
+#   roslaunch --wait "$OLD_NAV_ROOT/3DNavUL_Test_with_decision.launch" old_nav_root:="$OLD_NAV_ROOT"
 #   echo "[$(date '+%F %T')] 3DNavUL_Test_with_decision.launch exited, restarting..."
 #   sleep 2
 # done

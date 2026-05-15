@@ -36,5 +36,8 @@ extern bool   runtime_pos_log, pcd_save_en, path_en;
 extern bool   scan_pub_en, scan_body_pub_en;
 extern shared_ptr<Preprocess> p_pre;
 extern double time_lag_imu_to_lidar;
+extern bool pcd_save_transform_en;
+extern double pcd_save_roll_deg, pcd_save_pitch_deg, pcd_save_yaw_deg;
+extern double pcd_save_translate_x, pcd_save_translate_y, pcd_save_translate_z;
 
 void readParameters(ros::NodeHandle &n);

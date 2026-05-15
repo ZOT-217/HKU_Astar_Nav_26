@@ -13,5 +13,12 @@
       <param name="new_scan_topic" type="string" value="/3Dlidar" />
       <param name="max_height" type="double" value="10.0" />
       <param name="min_height" type="double" value="-1.0" />
+      <param name="single_lidar_mode" type="bool" value="true" />
+      <param name="roll_deg" type="double" value="0.0" />
+      <param name="pitch_deg" type="double" value="0.0" />
+      <param name="yaw_deg" type="double" value="0.0" />
+      <param name="translate_x" type="double" value="0.0" />
+      <param name="translate_y" type="double" value="0.0" />
+      <param name="translate_z" type="double" value="0.0" />
   </node>
 </launch>

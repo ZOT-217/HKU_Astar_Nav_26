@@ -15,6 +15,10 @@
 double first_RADIUS;
 double second_RADIUS, max_height, start_height;
 double min_height;
+double roll_deg, pitch_deg, yaw_deg;
+double translate_x, translate_y, translate_z;
+double cos_roll, sin_roll, cos_pitch, sin_pitch, cos_yaw, sin_yaw;
+bool single_lidar_mode;
 
 double slope_1,slp_first_RADIUS, height_1;
 double slope_2, slp_second_RADIUS, height_2;
@@ -54,6 +58,31 @@ bool filter(double x, double y, double z){
     double dy = y + 0.11369;
     return dx*dx + dy*dy >= 0.35 * 0.35;
 }
+
+void transformPoint(double input_x, double input_y, double input_z,
+                    double& output_x, double& output_y, double& output_z)
+{
+    double roll_x = input_x;
+    double roll_y = input_y * cos_roll - input_z * sin_roll;
+    double roll_z = input_y * sin_roll + input_z * cos_roll;
+
+    double pitch_x = roll_x * cos_pitch + roll_z * sin_pitch;
+    double pitch_y = roll_y;
+    double pitch_z = -roll_x * sin_pitch + roll_z * cos_pitch;
+
+    output_x = pitch_x * cos_yaw - pitch_y * sin_yaw + translate_x;
+    output_y = pitch_x * sin_yaw + pitch_y * cos_yaw + translate_y;
+    output_z = pitch_z + translate_z;
+}
+
+void appendTransformedPoint(pcl::PointCloud<pcl::PointXYZ>& pcl_cloud,
+                            double input_x, double input_y, double input_z)
+{
+    double output_x, output_y, output_z;
+    transformPoint(input_x, input_y, input_z, output_x, output_y, output_z);
+    pcl_cloud.points.push_back(pcl::PointXYZ(output_x, output_y, output_z));
+}
+
 int main(int argc, char **argv)
 {
     std::string node_name = "threeD_lidar_merge_pointcloud";
@@ -90,6 +119,23 @@ int main(int argc, char **argv)
         ROS_ERROR("Failed to retrieve parameter 'min_height'");
         return -1;
     }
+    nh.param<bool>("/" + node_name + "/single_lidar_mode", single_lidar_mode, false);
+    nh.param<double>("/" + node_name + "/roll_deg", roll_deg, 0.0);
+    nh.param<double>("/" + node_name + "/pitch_deg", pitch_deg, 0.0);
+    nh.param<double>("/" + node_name + "/yaw_deg", yaw_deg, 0.0);
+    nh.param<double>("/" + node_name + "/translate_x", translate_x, 0.0);
+    nh.param<double>("/" + node_name + "/translate_y", translate_y, 0.0);
+    nh.param<double>("/" + node_name + "/translate_z", translate_z, 0.0);
+
+    double roll_rad = roll_deg * M_PI / 180.0;
+    double pitch_rad = pitch_deg * M_PI / 180.0;
+    double yaw_rad = yaw_deg * M_PI / 180.0;
+    cos_roll = cos(roll_rad);
+    sin_roll = sin(roll_rad);
+    cos_pitch = cos(pitch_rad);
+    sin_pitch = sin(pitch_rad);
+    cos_yaw = cos(yaw_rad);
+    sin_yaw = sin(yaw_rad);
 
     ros::Subscriber sub_left = nh.subscribe(scan_topic_left, 1, scanCallback_left);
     ros::Subscriber sub_right = nh.subscribe(scan_topic_right, 1, scanCallback_right);
@@ -107,38 +153,23 @@ int main(int argc, char **argv)
         auto scan_record_left = scan_copy_left;
         auto scan_record_right = scan_copy_right;
         pcl_cloud.points.clear();
-        double angle_rad = -20 * M_PI / 180.0;
-        double cos_a = cos(angle_rad);
-        double sin_a = sin(angle_rad);
-        for (int i = 0; i < scan_record_left.points.size(); i++){
-            if(!filter(scan_record_left.points[i].x, scan_record_left.points[i].y, scan_record_left.points[i].z))continue;
-            double x = scan_record_left.points[i].x+0.02843 ;
-            double y = scan_record_left.points[i].y - 0.14337 ;
-            double z = scan_record_left.points[i].z +0.35;
+        if (!single_lidar_mode)
+        {
+            for (int i = 0; i < scan_record_left.points.size(); i++){
+                if(!filter(scan_record_left.points[i].x, scan_record_left.points[i].y, scan_record_left.points[i].z))continue;
+                double point_x = scan_record_left.points[i].x + 0.02843;
+                double point_y = scan_record_left.points[i].y - 0.14337;
+                double point_z = scan_record_left.points[i].z + 0.35;
 
-            // double x = scan_record_left.points[i].x + 0.02843;
-            // double y_temp = scan_record_left.points[i].y + 0.14337;
-            // double z_temp = scan_record_left.points[i].z;
-
-            // // 绕X轴旋转
-            // double y = y_temp * cos_a - z_temp * (-sin_a);
-            // double z = y_temp * (-sin_a) + z_temp * cos_a;
-            
-            pcl_cloud.points.push_back(pcl::PointXYZ(x, y, z));
+                appendTransformedPoint(pcl_cloud, point_x, point_y, point_z);
+            }
         }
         for (int i = 0; i < scan_record_right.points.size(); i++){
             if(!filter(scan_record_right.points[i].x, scan_record_right.points[i].y, scan_record_right.points[i].z))continue;
-            double x = scan_record_right.points[i].x ;
-            double y = scan_record_right.points[i].y ;
-            double z = scan_record_right.points[i].z;
-            // double x = scan_record_right.points[i].x + 0.02843;
-            // double y_temp = scan_record_right.points[i].y - 0.14337;
-            // double z_temp = scan_record_right.points[i].z;
-
-            // // 绕X轴旋转
-            // double y = y_temp * cos_a - z_temp * sin_a;
-            // double z = y_temp * sin_a + z_temp * cos_a;
-            pcl_cloud.points.push_back(pcl::PointXYZ(x, y, z));
+            double point_x = scan_record_right.points[i].x;
+            double point_y = scan_record_right.points[i].y;
+            double point_z = scan_record_right.points[i].z;
+            appendTransformedPoint(pcl_cloud, point_x, point_y, point_z);
         }
         // for(int i=(int)distances.size()-1;i>=0;i--)printf("%lf ",distances[i]);
         // printf("\nmax_dis: %f\n----------------------\n",max_dis);

@@ -5,10 +5,15 @@
 #include <fstream>
 #include <csignal>
 #include <unistd.h>
+#include <cerrno>
+#include <cstring>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <Python.h>
 #include <so3_math.h>
 #include <ros/ros.h>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include "IMU_Processing.hpp"
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
@@ -37,6 +42,75 @@ mutex mtx_buffer;
 condition_variable sig_buffer;
 
 string root_dir = ROOT_DIR;
+Eigen::Matrix3d pcd_save_rotation = Eigen::Matrix3d::Identity();
+Eigen::Vector3d pcd_save_translation = Eigen::Vector3d::Zero();
+
+double degrees_to_radians(double degrees)
+{
+    return degrees * M_PI / 180.0;
+}
+
+void configure_pcd_save_transform()
+{
+    Eigen::AngleAxisd roll_angle(degrees_to_radians(pcd_save_roll_deg), Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitch_angle(degrees_to_radians(pcd_save_pitch_deg), Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yaw_angle(degrees_to_radians(pcd_save_yaw_deg), Eigen::Vector3d::UnitZ());
+    pcd_save_rotation = (yaw_angle * pitch_angle * roll_angle).toRotationMatrix();
+    pcd_save_translation << pcd_save_translate_x, pcd_save_translate_y, pcd_save_translate_z;
+
+    if (pcd_save_transform_en)
+    {
+        ROS_WARN_STREAM("PCD export transform enabled: roll=" << pcd_save_roll_deg
+                        << " pitch=" << pcd_save_pitch_deg
+                        << " yaw=" << pcd_save_yaw_deg
+                        << " translate=[" << pcd_save_translate_x << ", "
+                        << pcd_save_translate_y << ", " << pcd_save_translate_z << "]");
+    }
+}
+
+void copy_point_for_pcd_save(const PointType& source_point, PointType& target_point)
+{
+    target_point = source_point;
+    if (!pcd_save_transform_en) return;
+
+    Eigen::Vector3d source_position(source_point.x, source_point.y, source_point.z);
+    Eigen::Vector3d target_position = pcd_save_rotation * source_position + pcd_save_translation;
+    target_point.x = target_position.x();
+    target_point.y = target_position.y();
+    target_point.z = target_position.z();
+}
+
+bool ensure_pcd_directory()
+{
+    string pcd_dir = string(ROOT_DIR) + "PCD";
+    struct stat info;
+    if (stat(pcd_dir.c_str(), &info) == 0)
+    {
+        if (S_ISDIR(info.st_mode)) return true;
+        ROS_ERROR_STREAM("PCD path exists but is not a directory: " << pcd_dir);
+        return false;
+    }
+
+    if (mkdir(pcd_dir.c_str(), 0755) == 0) return true;
+    ROS_ERROR_STREAM("Failed to create PCD directory " << pcd_dir << ": " << strerror(errno));
+    return false;
+}
+
+bool save_pcd_file(const string& all_points_dir, const PointCloudXYZI& cloud)
+{
+    if (!ensure_pcd_directory()) return false;
+    try
+    {
+        pcl::PCDWriter pcd_writer;
+        pcd_writer.writeBinary(all_points_dir, cloud);
+        return true;
+    }
+    catch (const std::exception& exception)
+    {
+        ROS_ERROR_STREAM("Failed to write PCD " << all_points_dir << ": " << exception.what());
+        return false;
+    }
+}
 
 int feats_down_size = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
 
@@ -609,10 +683,7 @@ void publish_frame_world(const ros::Publisher & pubLaserCloudFullRes)
 
         for (int i = 0; i < size; i++)
         {
-            laserCloudWorld->points[i].x = feats_down_world->points[i].x;
-            laserCloudWorld->points[i].y = feats_down_world->points[i].y;
-            laserCloudWorld->points[i].z = feats_down_world->points[i].z;
-            laserCloudWorld->points[i].intensity = feats_down_world->points[i].intensity;
+            copy_point_for_pcd_save(feats_down_world->points[i], laserCloudWorld->points[i]);
         }
         
         *pcl_wait_save += *laserCloudWorld;
@@ -623,11 +694,12 @@ void publish_frame_world(const ros::Publisher & pubLaserCloudFullRes)
         {
             pcd_index ++;
             string all_points_dir(string(string(ROOT_DIR) + "PCD/scans_") + to_string(pcd_index) + string(".pcd"));
-            pcl::PCDWriter pcd_writer;
-            cout << "current scan saved to /PCD/" << all_points_dir << endl;
-            pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-            pcl_wait_save->clear();
-            scan_wait_num = 0;
+            cout << "current scan saved to " << all_points_dir << endl;
+            if (save_pcd_file(all_points_dir, *pcl_wait_save))
+            {
+                pcl_wait_save->clear();
+                scan_wait_num = 0;
+            }
         }
     }
 }
@@ -729,6 +801,8 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "laserMapping");
     ros::NodeHandle nh("~");
     readParameters(nh);
+    configure_pcd_save_transform();
+    if (pcd_save_en) ensure_pcd_directory();
     cout<<"lidar_type: "<<lidar_type<<endl;
     
     path.header.stamp    = ros::Time().fromSec(lidar_end_time);
@@ -1369,8 +1443,7 @@ int main(int argc, char** argv)
     {
         string file_name = string("scans.pcd");
         string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-        pcl::PCDWriter pcd_writer;
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+        save_pcd_file(all_points_dir, *pcl_wait_save);
     }
     fout_out.close();
     fout_imu_pbp.close();

@@ -28,6 +28,9 @@ bool   runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
 bool   scan_pub_en, scan_body_pub_en;
 shared_ptr<Preprocess> p_pre;
 double time_lag_imu_to_lidar = 0.0;
+bool pcd_save_transform_en = false;
+double pcd_save_roll_deg = 0.0, pcd_save_pitch_deg = 0.0, pcd_save_yaw_deg = 0.0;
+double pcd_save_translate_x = 0.0, pcd_save_translate_y = 0.0, pcd_save_translate_z = 0.0;
 
 void readParameters(ros::NodeHandle &nh)
 {
@@ -86,5 +89,12 @@ void readParameters(ros::NodeHandle &nh)
   nh.param<bool>("runtime_pos_log_enable", runtime_pos_log, 0);
   nh.param<bool>("pcd_save/pcd_save_en", pcd_save_en, false);
   nh.param<int>("pcd_save/interval", pcd_save_interval, -1);
+  nh.param<bool>("pcd_save/transform_en", pcd_save_transform_en, false);
+  nh.param<double>("pcd_save/roll_deg", pcd_save_roll_deg, 0.0);
+  nh.param<double>("pcd_save/pitch_deg", pcd_save_pitch_deg, 0.0);
+  nh.param<double>("pcd_save/yaw_deg", pcd_save_yaw_deg, 0.0);
+  nh.param<double>("pcd_save/translate_x", pcd_save_translate_x, 0.0);
+  nh.param<double>("pcd_save/translate_y", pcd_save_translate_y, 0.0);
+  nh.param<double>("pcd_save/translate_z", pcd_save_translate_z, 0.0);
 }
 

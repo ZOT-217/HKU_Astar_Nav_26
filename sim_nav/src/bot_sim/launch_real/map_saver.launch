@@ -1,4 +1,6 @@
 <launch>
-    <arg name="filename" value="$(find bot_sim)/map/lab" />
+    <arg name="old_nav_root" default="/home/sentry_train_test/AstarTraining/Old_nav" />
+    <arg name="map_name" default="innowing" />
+    <arg name="filename" default="$(arg old_nav_root)/sim_nav/src/bot_sim/map/$(arg map_name)" />
     <node name="map_save" pkg="map_server" type="map_saver" args="-f $(arg filename)" />
 </launch>

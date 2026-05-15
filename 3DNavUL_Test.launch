@@ -1,4 +1,10 @@
 <launch>
+     <arg name="old_nav_root" default="/home/sentry_train_test/AstarTraining/Old_nav"/>
+     <arg name="old_nav_sim_src" default="$(arg old_nav_root)/sim_nav/src"/>
+     <arg name="old_nav_livox_src" default="$(arg old_nav_root)/livox_ws/src/livox_ros_driver2"/>
+     <arg name="globalmap_pcd" default="$(arg old_nav_sim_src)/hdl_graph_slam/map/innowing.pcd"/>
+     <arg name="map_root" default="$(arg old_nav_sim_src)/bot_sim/map"/>
+
     <!-- Stage 1 ROG-Map observability toggle (default OFF; opt-in per launch). -->
     <arg name="enable_rog_map_observer" default="false"/>
 
@@ -12,38 +18,44 @@
     <arg name="costmap_source"     default="dbscan"/>
 
     <!-- <include file="$(find pcd2pgm)/launch/pcd2pgm.launch" /> -->
-    <include file="$(find bot_sim)/launch_real/map_server.launch" />
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/map_server.launch">
+          <arg name="map_root" value="$(arg map_root)"/>
+     </include>
     
-    <include file="$(find bot_sim)/launch_real/imu_filter.launch" />
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/imu_filter.launch" />
 
 
-    <include file="$(find livox_ros_driver2)/launch_ROS1/rviz_MID360.launch" />
+     <include file="$(arg old_nav_livox_src)/launch_ROS1/rviz_MID360.launch">
+          <arg name="user_config_path" value="$(arg old_nav_livox_src)/config/MID360_config.json"/>
+     </include>
     
     <!-- <include file="$(find bot_sim)/launch_real/lidar_merge_pointcloud.launch" /> -->
     
-    <include file="$(find hdl_localization)/launch/hdl_localization.launch" />
+     <include file="$(arg old_nav_sim_src)/hdl_localization/launch/hdl_localization.launch">
+          <arg name="globalmap_pcd" value="$(arg globalmap_pcd)"/>
+     </include>
     <!-- <include file="$(find hdl_localization)/launch/hdl_localization1.launch" />     -->
-    <include file="$(find bot_sim)/launch_real/real_robot_transform.launch" />
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/real_robot_transform.launch" />
     <!-- <include file="$(find livox_cloudpoint_processor)/launch/lidar_filter_pointcloud.launch" /> -->
 
     <!-- Stage 1: passive ROG-Map observer (visualization only). Gated OFF by default. -->
-    <include file="$(find bot_sim)/launch_real/rog_map_observability.launch"
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/rog_map_observability.launch"
              if="$(arg enable_rog_map_observer)"/>
 
     <!-- Stage 2: ROG-Map -> /rog_grid bridge. Requires Stage 1 at runtime. -->
-    <include file="$(find bot_sim)/launch_real/rog_map_costmap_bridge.launch"
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/rog_map_costmap_bridge.launch"
              if="$(arg enable_rog_costmap)"/>
 
     <!-- <include file="$(find bot_sim)/launch_real/dbscan_bfs_3D.launch" /> -->
     <!-- D*-Lite: two-include if/unless pattern lets us pass dynamic_map_topic_name
          only when costmap_source==rog. Default branch keeps legacy /grid. -->
-    <include file="$(find bot_sim)/launch_real/dstarlite.launch"
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/dstarlite.launch"
              if="$(eval costmap_source == 'rog')">
         <arg name="dynamic_map_topic_name" value="/rog_grid"/>
     </include>
-    <include file="$(find bot_sim)/launch_real/dstarlite.launch"
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/dstarlite.launch"
              unless="$(eval costmap_source == 'rog')"/>
     
-    <include file="$(find bot_sim)/launch_real/ser2msg_tf_decision_givepoint.launch" />
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/ser2msg_tf_decision_givepoint.launch" />
 
 </launch>
