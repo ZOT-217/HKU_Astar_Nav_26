@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  nav:
+    build: .
+    image: hku-astar-nav:noetic
+    container_name: astar_nav_dev
+    network_mode: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      # Mount the entire repo read-write for development
+      - .:/workspace:delegated
+      # Persist built artifacts outside the bind mount (optional performance boost)
+      - catkin_build_ws_livox:/workspace/ws_livox/build
+      - catkin_devel_ws_livox:/workspace/ws_livox/devel
+      - catkin_build_sim_nav:/workspace/sim_nav/build
+      - catkin_devel_sim_nav:/workspace/sim_nav/devel
+      # XQuartz socket for GUI apps (RViz, etc.)
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # Time sync
+      - /etc/localtime:/etc/localtime:ro
+    stdin_open: true
+    tty: true
+    command: >
+      bash -c "
+        echo '=== Building ws_livox (Livox driver) ===' &&
+        cd /workspace/ws_livox && catkin_make &&
+        echo '=== Building sim_nav (main workspace) ===' &&
+        source /workspace/ws_livox/devel/setup.bash &&
+        cd /workspace/sim_nav && catkin_make &&
+        echo '=== Build complete ===' &&
+        exec bash
+      "
+
+volumes:
+  catkin_build_ws_livox:
+  catkin_devel_ws_livox:
+  catkin_build_sim_nav:
+  catkin_devel_sim_nav:
