@@ -14,8 +14,8 @@ services:
       # Mount the entire repo read-write for development
       - .:/workspace:delegated
       # Persist built artifacts outside the bind mount (optional performance boost)
-      - catkin_build_ws_livox:/workspace/ws_livox/build
-      - catkin_devel_ws_livox:/workspace/ws_livox/devel
+      - catkin_build_livox_ws:/workspace/livox_ws/build
+      - catkin_devel_livox_ws:/workspace/livox_ws/devel
       - catkin_build_sim_nav:/workspace/sim_nav/build
       - catkin_devel_sim_nav:/workspace/sim_nav/devel
       # XQuartz socket for GUI apps (RViz, etc.)
@@ -26,17 +26,17 @@ services:
     tty: true
     command: >
       bash -c "
-        echo '=== Building ws_livox (Livox driver) ===' &&
-        cd /workspace/ws_livox && catkin_make &&
+        echo '=== Building livox_ws (Livox driver) ===' &&
+        cd /workspace/livox_ws && catkin_make &&
         echo '=== Building sim_nav (main workspace) ===' &&
-        source /workspace/ws_livox/devel/setup.bash &&
+        source /workspace/livox_ws/devel/setup.bash &&
         cd /workspace/sim_nav && catkin_make &&
         echo '=== Build complete ===' &&
         exec bash
       "
 
 volumes:
-  catkin_build_ws_livox:
-  catkin_devel_ws_livox:
+  catkin_build_livox_ws:
+  catkin_devel_livox_ws:
   catkin_build_sim_nav:
   catkin_devel_sim_nav:

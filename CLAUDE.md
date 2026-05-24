@@ -12,9 +12,9 @@ Three catkin workspaces must be sourced in dependency order:
 
 ```bash
 # 1. Livox LiDAR driver
-cd ws_livox && catkin_make
+cd livox_ws && catkin_make
 
-# 2. Main navigation workspace (depends on ws_livox)
+# 2. Main navigation workspace (depends on livox_ws)
 cd sim_nav && catkin_make
 
 # 3. Navigation filter tests (optional submodule)
@@ -24,7 +24,7 @@ cd Navigation-filter-test && catkin_make
 **Runtime environment** — source all workspaces before launching:
 ```bash
 source /opt/ros/noetic/setup.bash
-source ws_livox/devel/setup.bash --extend
+source livox_ws/devel/setup.bash --extend
 source sim_nav/devel/setup.bash --extend
 source Navigation-filter-test/devel/setup.bash --extend   # if present
 ```
@@ -49,7 +49,7 @@ docker compose run --rm -e DISPLAY=host.docker.internal:0 nav bash
 
 After entering the container, source the built workspaces:
 ```bash
-source /workspace/ws_livox/devel/setup.bash --extend
+source /workspace/livox_ws/devel/setup.bash --extend
 source /workspace/sim_nav/devel/setup.bash --extend
 ```
 
@@ -60,8 +60,7 @@ source /workspace/sim_nav/devel/setup.bash --extend
 | Workspace | Purpose |
 |---|---|
 | `sim_nav/` | Main workspace — all navigation, planning, control, and SLAM packages |
-| `ws_livox/` | Livox ROS 1 driver (`livox_ros_driver2`) |
-| `livox_ws/` | Symlink-light wrapper for `ws_livox` |
+| `livox_ws/` | Livox ROS 1 driver (`livox_ros_driver2`) |
 
 ### Key packages in `sim_nav/src/`
 
@@ -178,7 +177,7 @@ rosrun teleop_twist_keyboard teleop_twist_keyboard.py
 ## Submodule dependencies
 
 - `Navigation-filter-test` — filter testing utilities (branch `RMUC2026`)
-- `ws_livox/src/livox_ros_driver2` — Livox ROS driver (forked, branch `parameter_RMUL2026_gimbal`)
+- `livox_ws/src/livox_ros_driver2` — Livox ROS driver (forked, branch `parameter_RMUL2026_gimbal`)
 
 Both are git submodules. After cloning, run:
 ```bash
