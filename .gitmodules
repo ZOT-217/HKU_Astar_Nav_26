@@ -1,8 +1,12 @@
 [submodule "Navigation-filter-test"]
 	path = Navigation-filter-test
 	url = https://github.com/HKUAstar/Navigation-filter-test.git
-branch = RMUC2026
+	branch = RMUC2026
 [submodule "livox_ws/src/livox_ros_driver2"]
 	path = livox_ws/src/livox_ros_driver2
 	url = https://github.com/fffcr/livox_ros_driver2.git
 	branch = parameter_RMUL2026_gimbal
+[submodule "DecisionNode"]
+	path = DecisionNode
+	url = https://github.com/HKUAstar/DecisionNode.git
+	branch = RMUC2026

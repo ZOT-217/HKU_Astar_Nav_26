@@ -1,0 +1,67 @@
+services:
+  nav:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      extra_hosts:
+        - host.docker.internal:host-gateway
+      args:
+        ROS_BASE_IMAGE: ${ROS_BASE_IMAGE:-osrf/ros:noetic-desktop-full}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
+    image: hku-astar-nav:noetic
+    container_name: astar_nav_dev
+    platform: linux/amd64
+    network_mode: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-}
+      - https_proxy=${https_proxy:-}
+      - no_proxy=${no_proxy:-}
+    volumes:
+      # Mount the entire repo read-write for development
+      - .:/workspace:delegated
+      # Persist built artifacts outside the bind mount (optional performance boost)
+      - catkin_build_livox_ws:/workspace/livox_ws/build
+      - catkin_devel_livox_ws:/workspace/livox_ws/devel
+      - catkin_build_sim_nav:/workspace/sim_nav/build
+      - catkin_devel_sim_nav:/workspace/sim_nav/devel
+      - catkin_build_decision:/workspace/DecisionNode/build
+      - catkin_devel_decision:/workspace/DecisionNode/devel
+      # XQuartz socket for GUI apps (RViz, etc.)
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # Time sync
+      - /etc/localtime:/etc/localtime:ro
+    stdin_open: true
+    tty: true
+    command: >
+      bash -c "
+        echo '=== Building livox_ws (Livox driver) ===' &&
+        cd /workspace/livox_ws/src/livox_ros_driver2 &&
+        cp -f package_ROS1.xml package.xml &&
+        cd /workspace/livox_ws && catkin_make -DROS_EDITION=ROS1 -j4 &&
+        echo '=== Building sim_nav (main workspace) ===' &&
+        source /workspace/livox_ws/devel/setup.bash &&
+        cd /workspace/sim_nav && catkin_make -j4 &&
+        echo '=== Building DecisionNode ===' &&
+        cd /workspace/DecisionNode && catkin_make -j4 &&
+        echo '=== Build complete ===' &&
+        exec bash
+      "
+
+volumes:
+  catkin_build_livox_ws:
+  catkin_devel_livox_ws:
+  catkin_build_sim_nav:
+  catkin_devel_sim_nav:
+  catkin_build_decision:
+  catkin_devel_decision:

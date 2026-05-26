@@ -5,20 +5,38 @@ devel/
 */build/
 */devel/
 
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+CTestConfiguration.ini
+CTestCustom.cmake
+cmake_install.cmake
+install_manifest.txt
+
+# Catkin build artifacts
+catkin_generated/
+catkin/
+atomic_configure/
+.catkin_tools/
+.catkin_workspace
+*.develspace.in
+build_output.log
+
 # Logs and recordings
 logs/
 *.log
 *.bag
 *.bag.active
+error.txt
+before.txt
 
-# External dependencies (from GitHub)
+# External dependencies (GitHub clone, not submodule)
 ws_livox/
 
 # Large data files
 sim_nav/src/hdl_graph_slam/map/
 sim_nav/src/Point-LIO/PCD/
 sim_nav/src/Point-LIO/image/
-ws_livox/
 
 # Standardization directory
 standardization/
@@ -37,9 +55,10 @@ __pycache__/
 *.swp
 *.swo
 *~
+.env
+.env.local
 
 # ROS specific
-.catkin_workspace
 .rosinstall
 .ros/
 

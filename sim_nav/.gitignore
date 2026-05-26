@@ -1,2 +1,25 @@
 build/
 devel/
+
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+CTestConfiguration.ini
+CTestCustom.cmake
+cmake_install.cmake
+install_manifest.txt
+
+# Catkin build artifacts
+catkin_generated/
+catkin/
+atomic_configure/
+.catkin_tools/
+.catkin_workspace
+*.develspace.in
+build_output.log
+error.txt
+before.txt
+logs/
+
+# FAST_LIO_LOCALIZATION is entirely build-generated (catkin devel artifacts)
+FAST_LIO_LOCALIZATION/
