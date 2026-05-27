@@ -5,10 +5,16 @@
      <arg name="globalmap_pcd" default="$(arg old_nav_sim_src)/hdl_graph_slam/map/innowing.pcd"/>
      <arg name="map_root" default="$(arg old_nav_sim_src)/bot_sim/map"/>
 
-    <!-- Stage 1 ROG-Map observability toggle (default OFF; opt-in per launch). -->
+    <!-- Dynamic obstacle source selector:
+         dbscan -> legacy /test_scan -> /grid pipeline (default ON)
+         rog    -> ROG-Map Stage 1/2 -> /rog_grid pipeline
+         none   -> no dynamic publisher; dstarlite still listens to /grid -->
+    <arg name="dynamic_avoidance_source" default="dbscan"/>
+
+    <!-- Stage 1 ROG-Map observability toggle (kept for compatibility). -->
     <arg name="enable_rog_map_observer" default="false"/>
 
-    <!-- Stage 2: ROG-Map -> /rog_grid bridge for D*-Lite. Default OFF.
+    <!-- Stage 2: ROG-Map -> /rog_grid bridge for D*-Lite.
          When enable_rog_costmap:=true, the bridge requires Stage 1; bridge
          enforces this at runtime via a 5 s waitForMessage gate.
          costmap_source selects which topic dstarlite consumes:
@@ -16,6 +22,8 @@
            rog    -> /rog_grid (Stage 2 bridge) -->
     <arg name="enable_rog_costmap" default="false"/>
     <arg name="costmap_source"     default="dbscan"/>
+     <arg name="enable_cmd_vel_markers" default="false"/>
+     <arg name="enable_world_align" default="false"/>
 
     <!-- <include file="$(find pcd2pgm)/launch/pcd2pgm.launch" /> -->
      <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/map_server.launch">
@@ -38,24 +46,36 @@
      <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/real_robot_transform.launch" />
     <!-- <include file="$(find livox_cloudpoint_processor)/launch/lidar_filter_pointcloud.launch" /> -->
 
+    <!-- Legacy dynamic obstacle pipeline: Livox CustomMsg -> /test_scan -> /grid. -->
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/lidar_filter.launch"
+          if="$(eval dynamic_avoidance_source == 'dbscan' and costmap_source != 'rog')"/>
+     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/dbscan_bfs_3D.launch"
+          if="$(eval dynamic_avoidance_source == 'dbscan' and costmap_source != 'rog')"/>
+
     <!-- Stage 1: passive ROG-Map observer (visualization only). Gated OFF by default. -->
      <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/rog_map_observability.launch"
-             if="$(arg enable_rog_map_observer)"/>
+          if="$(eval dynamic_avoidance_source == 'rog' or costmap_source == 'rog' or enable_rog_map_observer == 'true')"/>
 
     <!-- Stage 2: ROG-Map -> /rog_grid bridge. Requires Stage 1 at runtime. -->
      <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/rog_map_costmap_bridge.launch"
-             if="$(arg enable_rog_costmap)"/>
+          if="$(eval dynamic_avoidance_source == 'rog' or costmap_source == 'rog' or enable_rog_costmap == 'true')"/>
 
     <!-- <include file="$(find bot_sim)/launch_real/dbscan_bfs_3D.launch" /> -->
     <!-- D*-Lite: two-include if/unless pattern lets us pass dynamic_map_topic_name
          only when costmap_source==rog. Default branch keeps legacy /grid. -->
      <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/dstarlite.launch"
-             if="$(eval costmap_source == 'rog')">
+                               if="$(eval dynamic_avoidance_source == 'rog' or costmap_source == 'rog')">
         <arg name="dynamic_map_topic_name" value="/rog_grid"/>
+          <arg name="enable_cmd_vel_markers" value="$(arg enable_cmd_vel_markers)"/>
     </include>
      <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/dstarlite.launch"
-             unless="$(eval costmap_source == 'rog')"/>
+                                    unless="$(eval dynamic_avoidance_source == 'rog' or costmap_source == 'rog')">
+          <arg name="enable_cmd_vel_markers" value="$(arg enable_cmd_vel_markers)"/>
+         </include>
     
-     <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/ser2msg_tf_decision_givepoint.launch" />
+          <include file="$(arg old_nav_sim_src)/bot_sim/launch_real/ser2msg_tf_decision_givepoint.launch">
+          <arg name="old_nav_root" value="$(arg old_nav_root)"/>
+          <arg name="enable_world_align" value="$(arg enable_world_align)"/>
+         </include>
 
 </launch>

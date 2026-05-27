@@ -4,6 +4,32 @@ set -eo pipefail
 OLD_NAV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ASTAR_ROOT="$(dirname "$OLD_NAV_ROOT")"
 DECISION_WS="${DECISION_WS:-$ASTAR_ROOT/DecisionNode}"
+LIVOX_SETUP="$OLD_NAV_ROOT/livox_ws/devel/setup.bash"
+SIM_NAV_SETUP="$OLD_NAV_ROOT/sim_nav/devel/setup.bash"
+EXPECTED_BOT_SIM="$OLD_NAV_ROOT/sim_nav/src/bot_sim"
+EXPECTED_LIVOX_DRIVER="$OLD_NAV_ROOT/livox_ws/src/livox_ros_driver2"
+
+function prepend_old_nav_package_path() {
+  if [[ -n "${ROS_PACKAGE_PATH:-}" ]]; then
+    export ROS_PACKAGE_PATH="$OLD_NAV_ROOT/sim_nav/src:$OLD_NAV_ROOT/livox_ws/src:$ROS_PACKAGE_PATH"
+  else
+    export ROS_PACKAGE_PATH="$OLD_NAV_ROOT/sim_nav/src:$OLD_NAV_ROOT/livox_ws/src"
+  fi
+}
+
+function assert_ros_package_path() {
+  local package_name="$1"
+  local expected_path="$2"
+  local actual_path
+
+  actual_path="$(rospack find "$package_name" 2>/dev/null || true)"
+  if [[ "$actual_path" != "$expected_path" ]]; then
+    echo "[$(date '+%F %T')] ERROR: ROS package '$package_name' resolves to '$actual_path'"
+    echo "[$(date '+%F %T')] ERROR: Expected '$expected_path'"
+    echo "[$(date '+%F %T')] ERROR: Refusing to launch with a shadowed Old_nav package"
+    exit 1
+  fi
+}
 
 cd "$OLD_NAV_ROOT"
 
@@ -19,16 +45,31 @@ export ROS_DISTRO=noetic
 export ROS_MASTER_URI=http://127.0.0.1:11311
 export ROS_HOSTNAME=127.0.0.1
 
-# Source ROS and all related workspaces
+# Source ROS and all related workspaces. Source Old_nav last so its packages win
+# over any inherited or decision-workspace packages with the same names.
 source /opt/ros/noetic/setup.bash
-source "$OLD_NAV_ROOT/livox_ws/devel/setup.bash" --extend
-source "$OLD_NAV_ROOT/sim_nav/devel/setup.bash" --extend
 if [ -f "$OLD_NAV_ROOT/Navigation-filter-test/devel/setup.bash" ]; then
   source "$OLD_NAV_ROOT/Navigation-filter-test/devel/setup.bash" --extend
 fi
 if [ -f "$DECISION_WS/devel/setup.bash" ]; then
   source "$DECISION_WS/devel/setup.bash" --extend
 fi
+if [[ ! -f "$LIVOX_SETUP" ]]; then
+  echo "[$(date '+%F %T')] ERROR: Missing Livox workspace setup: $LIVOX_SETUP"
+  exit 1
+fi
+if [[ ! -f "$SIM_NAV_SETUP" ]]; then
+  echo "[$(date '+%F %T')] ERROR: Missing sim_nav workspace setup: $SIM_NAV_SETUP"
+  exit 1
+fi
+source "$LIVOX_SETUP" --extend
+source "$SIM_NAV_SETUP" --extend
+prepend_old_nav_package_path
+rospack profile >/dev/null 2>&1 || true
+assert_ros_package_path bot_sim "$EXPECTED_BOT_SIM"
+assert_ros_package_path livox_ros_driver2 "$EXPECTED_LIVOX_DRIVER"
+echo "[$(date '+%F %T')] bot_sim package: $(rospack find bot_sim)"
+echo "[$(date '+%F %T')] livox_ros_driver2 package: $(rospack find livox_ros_driver2)"
 
 # Short, configurable startup waits (systemd already orders network and ttyUSB0)
 BOOT_SETTLE_SECONDS="${BOOT_SETTLE_SECONDS:-2}"

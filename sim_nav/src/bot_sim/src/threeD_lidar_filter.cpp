@@ -4,7 +4,6 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2/LinearMath/Transform.h>
-#include "livox_ros_driver2/CustomMsg.h"
 // Include for testing
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -20,23 +19,24 @@ double slope_2, slp_second_RADIUS, height_2;
 double slope_3,slp_third_RADIUS, height_3;
 
 bool get_msg_left = 0, get_msg_right = 0;
+bool single_lidar_mode = true;
 std::string base_frame;
 std::string laser_frame;
 std::string scan_topic_left;
 std::string scan_topic_right;
 std::string new_scan_topic;
 ros::Publisher pub;
-livox_ros_driver2::CustomMsg scan_copy_left;
-livox_ros_driver2::CustomMsg scan_copy_right;
+pcl::PointCloud<pcl::PointXYZ> scan_copy_left;
+pcl::PointCloud<pcl::PointXYZ> scan_copy_right;
 geometry_msgs::TransformStamped transformStamped;
-void scanCallback_left(const livox_ros_driver2::CustomMsg &scan)
+void scanCallback_left(const sensor_msgs::PointCloud2ConstPtr& scan)
 {
-    scan_copy_left = scan;
+    pcl::fromROSMsg(*scan, scan_copy_left);
     get_msg_left = 1;
 }
-void scanCallback_right(const livox_ros_driver2::CustomMsg &scan)
+void scanCallback_right(const sensor_msgs::PointCloud2ConstPtr& scan)
 {
-    scan_copy_right = scan;
+    pcl::fromROSMsg(*scan, scan_copy_right);
     get_msg_right = 1;
 }
 
@@ -136,6 +136,7 @@ int main(int argc, char **argv)
         ROS_ERROR("Failed to retrieve parameter 'new_scan_topic'");
         return -1;
     }
+    nh.param<bool>("/" + node_name + "/single_lidar_mode", single_lidar_mode, true);
     if (!nh.getParam("/" + node_name + "/first_RADIUS", first_RADIUS))
     {
         ROS_ERROR("Failed to retrieve parameter 'first_RADIUS'");
@@ -189,7 +190,11 @@ int main(int argc, char **argv)
 
 
     ros::Subscriber sub_left = nh.subscribe(scan_topic_left, 1, scanCallback_left);
-    ros::Subscriber sub_right = nh.subscribe(scan_topic_right, 1, scanCallback_right);
+    ros::Subscriber sub_right;
+    if (!single_lidar_mode)
+    {
+        sub_right = nh.subscribe(scan_topic_right, 1, scanCallback_right);
+    }
     ros::Publisher pub2 = nh.advertise<sensor_msgs::PointCloud2>(new_scan_topic, 1);
 
     tf2_ros::Buffer tfBuffer;
@@ -200,7 +205,7 @@ int main(int argc, char **argv)
     // ---
     while (ros::ok())
     {
-        if (!get_msg_left||!get_msg_right)
+        if (!get_msg_left || (!single_lidar_mode && !get_msg_right))
         {
             ros::spinOnce();
             continue;
@@ -214,52 +219,30 @@ int main(int argc, char **argv)
             std::cout << "Error: " << ex.what() << std::endl;
         }
         max_dis=0;
-        // distances.clear();
         auto scan_record_left = scan_copy_left;
         auto scan_record_right = scan_copy_right;
         pcl_cloud.points.clear();
         tf2::Transform tf_transform;
         tf2::fromMsg(transformStamped.transform, tf_transform);
-        double angle_rad = -20 * M_PI / 180.0;
-        double cos_a = cos(angle_rad);
-        double sin_a = sin(angle_rad);
-        for (int i = 0; i < scan_record_left.points.size(); i++)
-        {
-            double x = scan_record_left.points[i].x + 0.02843;
-            double y_temp = scan_record_left.points[i].y + 0.14337;
-            double z_temp = scan_record_left.points[i].z;
-
-            // 绕X轴旋转
-            double y = y_temp * cos_a - z_temp * (-sin_a);
-            double z = y_temp * (-sin_a) + z_temp * cos_a;
-            tf2::Vector3 point_in(x, y, z);
-            tf2::Vector3 point_out = tf_transform * point_in;
-            double nx = point_out.x();
-            double ny = point_out.y();
-            double nz = point_out.z();
-            if (satisfied(nx,ny,nz))
+        auto append_points = [&](const pcl::PointCloud<pcl::PointXYZ>& scan_record) {
+            for (const auto& point : scan_record.points)
             {
-                pcl_cloud.points.push_back(pcl::PointXYZ(nx, ny, nz));
+                if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) continue;
+                tf2::Vector3 point_in(point.x, point.y, point.z);
+                tf2::Vector3 point_out = tf_transform * point_in;
+                double nx = point_out.x();
+                double ny = point_out.y();
+                double nz = point_out.z();
+                if (satisfied(nx, ny, nz))
+                {
+                    pcl_cloud.points.push_back(pcl::PointXYZ(nx, ny, nz));
+                }
             }
-        }
-        for (int i = 0; i < scan_record_right.points.size(); i++)
+        };
+        append_points(scan_record_left);
+        if (!single_lidar_mode)
         {
-            double x = scan_record_right.points[i].x + 0.02843;
-            double y_temp = scan_record_right.points[i].y - 0.14337;
-            double z_temp = scan_record_right.points[i].z;
-
-            // 绕X轴旋转
-            double y = y_temp * cos_a - z_temp * sin_a;
-            double z = y_temp * sin_a + z_temp * cos_a;
-            tf2::Vector3 point_in(x, y, z);
-            tf2::Vector3 point_out = tf_transform * point_in;
-            double nx = point_out.x();
-            double ny = point_out.y();
-            double nz = point_out.z();
-            if (satisfied(nx,ny,-z))
-            {
-                pcl_cloud.points.push_back(pcl::PointXYZ(nx, ny, nz));
-            }
+            append_points(scan_record_right);
         }
         // sort(distances.begin(),distances.end());
         // for(int i=(int)distances.size()-1;i>=0;i--)printf("%lf ",distances[i]);

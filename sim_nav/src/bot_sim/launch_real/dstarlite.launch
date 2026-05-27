@@ -4,6 +4,7 @@
          disabled). Pass `dynamic_map_topic_name:=/rog_grid` to consume the
          ROG-Map bridge instead. -->
     <arg name="dynamic_map_topic_name" default="/grid"/>
+    <arg name="enable_cmd_vel_markers" default="false"/>
 
     <node pkg="bot_sim" type="dstarlite" name="dstarlite" >
         <param name="map_topic_name" value="/map" />
@@ -60,14 +61,14 @@
            <param name="slope_boost_uphill_sign" type="double" value="-1.0" />
     </node>
 
-    <node pkg="bot_sim" type="cmd_vel_marker" name="cmd_vel_marker">
+    <node pkg="bot_sim" type="cmd_vel_marker" name="cmd_vel_marker" if="$(arg enable_cmd_vel_markers)">
         <param name="cmd_vel_topic" value="/cmd_vel" />
         <param name="marker_topic" value="/cmd_vel_marker" />
         <param name="frame_id" value="virtual_frame" />
         <param name="linear_scale" type="double" value="1.0" />
     </node>
 
-    <node pkg="bot_sim" type="cmd_vel_marker" name="raw_cmd_vel_marker">
+    <node pkg="bot_sim" type="cmd_vel_marker" name="raw_cmd_vel_marker" if="$(arg enable_cmd_vel_markers)">
         <param name="cmd_vel_topic" value="/dstarlite/raw_cmd_vel" />
         <param name="marker_topic" value="/dstarlite/raw_cmd_vel_marker" />
         <param name="frame_id" value="virtual_frame" />
