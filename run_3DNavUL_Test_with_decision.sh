@@ -1,75 +1,28 @@
 #!/bin/bash
 set -eo pipefail
 
-OLD_NAV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ASTAR_ROOT="$(dirname "$OLD_NAV_ROOT")"
-DECISION_WS="${DECISION_WS:-$ASTAR_ROOT/DecisionNode}"
-LIVOX_SETUP="$OLD_NAV_ROOT/livox_ws/devel/setup.bash"
-SIM_NAV_SETUP="$OLD_NAV_ROOT/sim_nav/devel/setup.bash"
-EXPECTED_BOT_SIM="$OLD_NAV_ROOT/sim_nav/src/bot_sim"
-EXPECTED_LIVOX_DRIVER="$OLD_NAV_ROOT/livox_ws/src/livox_ros_driver2"
+cd /home/calibur/HKU_Astar_Nav_26
 
-function prepend_old_nav_package_path() {
-  if [[ -n "${ROS_PACKAGE_PATH:-}" ]]; then
-    export ROS_PACKAGE_PATH="$OLD_NAV_ROOT/sim_nav/src:$OLD_NAV_ROOT/livox_ws/src:$ROS_PACKAGE_PATH"
-  else
-    export ROS_PACKAGE_PATH="$OLD_NAV_ROOT/sim_nav/src:$OLD_NAV_ROOT/livox_ws/src"
-  fi
-}
-
-function assert_ros_package_path() {
-  local package_name="$1"
-  local expected_path="$2"
-  local actual_path
-
-  actual_path="$(rospack find "$package_name" 2>/dev/null || true)"
-  if [[ "$actual_path" != "$expected_path" ]]; then
-    echo "[$(date '+%F %T')] ERROR: ROS package '$package_name' resolves to '$actual_path'"
-    echo "[$(date '+%F %T')] ERROR: Expected '$expected_path'"
-    echo "[$(date '+%F %T')] ERROR: Refusing to launch with a shadowed Old_nav package"
-    exit 1
-  fi
-}
-
-cd "$OLD_NAV_ROOT"
-
-LOG_DIR="$OLD_NAV_ROOT/logs"
+LOG_DIR="/home/calibur/HKU_Astar_Nav_26/logs"
 mkdir -p "$LOG_DIR"
 exec >> "$LOG_DIR/3dnav_with_decision_autostart.log" 2>&1
 
 echo "==== $(date '+%F %T') starting 3DNav autostart ===="
 
-export HOME="${HOME:-/home/sentry_train_test}"
-export ROS_HOME="${ROS_HOME:-$HOME/.ros}"
+export HOME=/home/calibur
+export ROS_HOME=/home/calibur/.ros
 export ROS_DISTRO=noetic
 export ROS_MASTER_URI=http://127.0.0.1:11311
 export ROS_HOSTNAME=127.0.0.1
 
-# Source ROS and all related workspaces. Source Old_nav last so its packages win
-# over any inherited or decision-workspace packages with the same names.
+# Source ROS and all related workspaces
 source /opt/ros/noetic/setup.bash
-if [ -f "$OLD_NAV_ROOT/Navigation-filter-test/devel/setup.bash" ]; then
-  source "$OLD_NAV_ROOT/Navigation-filter-test/devel/setup.bash" --extend
+source /home/calibur/HKU_Astar_Nav_26/livox_ws/devel/setup.bash --extend
+source /home/calibur/HKU_Astar_Nav_26/sim_nav/devel/setup.bash --extend
+source /home/calibur/HKU_Astar_Nav_26/Navigation-filter-test/devel/setup.bash --extend
+if [ -f /home/calibur/DecisionNode/devel/setup.bash ]; then
+  source /home/calibur/DecisionNode/devel/setup.bash --extend
 fi
-if [ -f "$DECISION_WS/devel/setup.bash" ]; then
-  source "$DECISION_WS/devel/setup.bash" --extend
-fi
-if [[ ! -f "$LIVOX_SETUP" ]]; then
-  echo "[$(date '+%F %T')] ERROR: Missing Livox workspace setup: $LIVOX_SETUP"
-  exit 1
-fi
-if [[ ! -f "$SIM_NAV_SETUP" ]]; then
-  echo "[$(date '+%F %T')] ERROR: Missing sim_nav workspace setup: $SIM_NAV_SETUP"
-  exit 1
-fi
-source "$LIVOX_SETUP" --extend
-source "$SIM_NAV_SETUP" --extend
-prepend_old_nav_package_path
-rospack profile >/dev/null 2>&1 || true
-assert_ros_package_path bot_sim "$EXPECTED_BOT_SIM"
-assert_ros_package_path livox_ros_driver2 "$EXPECTED_LIVOX_DRIVER"
-echo "[$(date '+%F %T')] bot_sim package: $(rospack find bot_sim)"
-echo "[$(date '+%F %T')] livox_ros_driver2 package: $(rospack find livox_ros_driver2)"
 
 # Short, configurable startup waits (systemd already orders network and ttyUSB0)
 BOOT_SETTLE_SECONDS="${BOOT_SETTLE_SECONDS:-2}"
@@ -112,81 +65,79 @@ if ! timeout 3s rostopic list >/dev/null 2>&1; then
     sleep 1
   done
 fi
+# ============================================================
+# 高效滚动 rosbag（rosbag 自带 --split 每60秒分片，退出时合并为一个文件）
+# 分片存入隐藏目录 .rosbag_chunks/，用户只看到最终单个 .bag 文件
+# ============================================================
+BASENAME="rosbag_$(date '+%Y%m%d_%H%M%S')"
+CHUNK_DIR="$LOG_DIR/.rosbag_chunks"
+mkdir -p "$CHUNK_DIR"
 
+echo "[$(date '+%F %T')] rosbag output: $LOG_DIR/${BASENAME}.bag"
 
-# 生成以当前时间命名的rosbag文件名
+# 启动 rosbag，每60秒自动分割为一个独立 .bag 文件
+# rosbag 内部处理分片：chunk_N.bag.active -> chunk_N.bag（完成时自动重命名）
+# 任何时候最多只有一个 .bag.active（当前分片）
+rosbag record -a --split --duration=60 -o "$CHUNK_DIR/chunk" --lz4 &
+ROSBAG_PID=$!
 
+function merge_chunks_into_bag() {
+  local out="$LOG_DIR/${BASENAME}.bag"
+  local chunks=("$CHUNK_DIR"/chunk_*.bag)
 
-# 定义下电时自动保存rosbag的处理函数
+  if [ ${#chunks[@]} -eq 0 ] || [ ! -f "${chunks[0]}" ]; then
+    return 0
+  fi
+
+  # 只有一个分片，直接 rename
+  if [ ${#chunks[@]} -eq 1 ]; then
+    mv "${chunks[0]}" "$out"
+    echo "[$(date '+%F %T')] rosbag finalized: $out"
+    return 0
+  fi
+
+  # 多个分片，合并为一个文件（仅在退出时执行一次）
+  echo "[$(date '+%F %T')] merging ${#chunks[@]} chunks into $out..."
+  python3 << PYCHUNK 2>&1 | head -1
+import rosbag, glob, os
+chunks = sorted(glob.glob('$CHUNK_DIR/chunk_*.bag'))
+if not chunks:
+    exit(0)
+out_path = '$out'
+out = rosbag.Bag(out_path, 'w')
+for f in chunks:
+    with rosbag.Bag(f) as b:
+        for t, m, s in b.read_messages():
+            out.write(t, m, s)
+out.close()
+print('merged {} chunks into {}'.format(len(chunks), out_path))
+PYCHUNK
+  echo "[$(date '+%F %T')] merge done"
+}
+
 function stop_rosbag() {
   echo "[$(date '+%F %T')] stopping rosbag..."
   if [ -n "$ROSBAG_PID" ] && kill -0 "$ROSBAG_PID" 2>/dev/null; then
-    # 生成唯一关机rosbag名
-    SHUTDOWN_TIME=$(date '+%Y%m%d_%H%M%S')
-    SHUTDOWN_BAG_FILE="$LOG_DIR/rosbag_shutdown_${SHUTDOWN_TIME}.bag"
-    kill -2 "$ROSBAG_PID"
-    wait "$ROSBAG_PID"
-    # 如果最后一个rosbag文件存在且未被重命名，则重命名为shutdown专用名
-    if [ -f "$BAG_FILE" ]; then
-      mv "$BAG_FILE" "$SHUTDOWN_BAG_FILE"
-      echo "[$(date '+%F %T')] rosbag saved to $SHUTDOWN_BAG_FILE (shutdown)"
-    else
-      echo "[$(date '+%F %T')] rosbag saved to $BAG_FILE (shutdown)"
-    fi
+    kill -2 "$ROSBAG_PID"      # SIGINT -> 最终分片 .bag.active -> .bag
+    wait "$ROSBAG_PID" 2>/dev/null || true
     ROSBAG_PID=""
   fi
-echo "[$(date '+%F %T')] launching 3DNavUL_Test_with_decision.launch"
-
+  # 兜底：处理任何残留的 .bag.active
+  for f in "$CHUNK_DIR"/*.bag.active; do
+    [ -f "$f" ] && mv "$f" "${f%.active}"
+  done
+  merge_chunks_into_bag
+  rm -rf "$CHUNK_DIR"
+  echo "[$(date '+%F %T')] rosbag done"
 }
+
 trap stop_rosbag SIGINT SIGTERM
 
-# === 新增：每1分钟分割rosbag ===
-SPLIT_COUNT=0
-SPLIT_INTERVAL=60  # 单位：秒，每1分钟分割一次
-
-function start_rosbag() {
-  BAG_START_TIME=$(date '+%Y%m%d_%H%M%S')
-  BAG_FILE="$LOG_DIR/rosbag_${BAG_START_TIME}_$SPLIT_COUNT.bag"
-  echo "[$(date '+%F %T')] starting rosbag record to $BAG_FILE"
-  rosbag record -a -O "$BAG_FILE" --lz4 &
-  ROSBAG_PID=$!
-}
-
-function stop_rosbag_if_running() {
-  if [ -n "$ROSBAG_PID" ] && kill -0 "$ROSBAG_PID" 2>/dev/null; then
-    kill -2 "$ROSBAG_PID"
-    wait "$ROSBAG_PID"
-    echo "[$(date '+%F %T')] rosbag saved to $BAG_FILE"
-    ROSBAG_PID=""
-  fi
-}
-
-
-
-# 启动rosbag分割和roslaunch并发，主进程等待roslaunch退出
-start_rosbag
-(while true; do
-  sleep "$SPLIT_INTERVAL"
-  stop_rosbag_if_running
-  SPLIT_COUNT=$((SPLIT_COUNT+1))
-  start_rosbag
-done) &
-SPLIT_PID=$!
-
 echo "[$(date '+%F %T')] launching 3DNavUL_Test_with_decision.launch"
-roslaunch --wait "$OLD_NAV_ROOT/3DNavUL_Test_with_decision.launch" old_nav_root:="$OLD_NAV_ROOT"
+roslaunch --wait /home/calibur/HKU_Astar_Nav_26/3DNavUL_Test_with_decision.launch
 
-# 退出时清理
-kill $SPLIT_PID 2>/dev/null || true
-stop_rosbag_if_running
-
-# # 如需自动重启，请取消注释以下内容：
-# while true; do
-#   roslaunch --wait "$OLD_NAV_ROOT/3DNavUL_Test_with_decision.launch" old_nav_root:="$OLD_NAV_ROOT"
-#   echo "[$(date '+%F %T')] 3DNavUL_Test_with_decision.launch exited, restarting..."
-#   sleep 2
-# done
-# systemctl stop 
+# roslaunch 退出后清理
+stop_rosbag
 # 创建一个 systemd 服务文件（如 /etc/systemd/system/3dnav_with_decision.service）。
 # 在服务文件中配置 ExecStart 指向你的脚本路径。
 # 重新加载 systemd 配置：sudo systemctl daemon-reload
