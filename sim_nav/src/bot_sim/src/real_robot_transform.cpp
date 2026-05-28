@@ -7,8 +7,6 @@
 #include <tf2_ros/transform_listener.h>
 const float PI = 3.14159265358979323846;
 
-std::string v_frame;
-std::string g_frame;
 std::string odom_frame;
 std::string lidar_frame;
 tf2::Quaternion qhdl;
@@ -56,16 +54,6 @@ int main(int argc, char** argv){
     if (!nh.getParam("/"+node_name+"/_3DLidar_frame", _3DLidar_frame))
     {
         ROS_ERROR("Failed to retrieve parameter '_3DLidar_frame'");
-        return -1;
-    }
-    if (!nh.getParam("/"+node_name+"/g_frame", g_frame))
-    {
-        ROS_ERROR("Failed to retrieve parameter 'g_frame'");
-        return -1;
-    }
-    if (!nh.getParam("/"+node_name+"/v_frame", v_frame))
-    {
-        ROS_ERROR("Failed to retrieve parameter 'v_frame'");
         return -1;
     }
     if (!nh.getParam("/"+node_name+"/odom_frame", odom_frame))
